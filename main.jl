@@ -61,8 +61,8 @@ end
 ##################################################
 @views function acoustic2D()
     #Physics
-    lx_gas, ly_gas          = 20.0, 20.0  # domain extends of gas
-    lx_liquid, ly_liquid    = 20.0, 40.0  # domain extends of liquid
+    lx_gas, ly_gas          = 0.02, 0.02  # domain extends of gas
+    lx_liquid, ly_liquid    = 0.02, 0.04  # domain extends of liquid
     k_gas                   = 149470      # bulk modulus of gas (set such that speed of sound is 340m/s)
     k_liquid                = 2.2e9       # bulk modulus of liquid (set such that speed of sound is 1500m/s)
 
@@ -79,8 +79,8 @@ end
     # Numerics
     nx_gas, ny_gas    = 1020, 1020  # numerical grid resolution; should be a mulitple of 32-1 for optimal GPU perf
     nx_liquid, ny_liquid = 1020, 2*ny_gas-1
-    nt        = 5000       # number of timesteps
-    nout      = 200         # plotting frequency
+    nt        = 25000       # number of timesteps
+    nout      = 500         # plotting frequency
     
     # Derived numerics
     dx_gas, dy_gas          = lx_gas/(nx_gas-1), ly_gas/(ny_gas-1)              # cell sizes in gas
