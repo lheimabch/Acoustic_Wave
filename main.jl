@@ -7,7 +7,7 @@ else
     @init_parallel_stencil(Threads, Float64, 2)
 end
 using Plots, Printf, Statistics
-
+# default(size=(1200,800),framestyle=:box,label=false,grid=false,margin=35mm,lw=6,labelfontsize=20,tickfontsize=20,titlefontsize=24)
 #need to add keyword parallel to all functions to enable 
 @parallel function compute_p!(p, v, f, dt)
     @all(p) = @all(p) + @all(v)*dt + 0.5*@all(f)*dt*dt
@@ -42,10 +42,8 @@ end
     return
 end
 
-function insert_wave!(p,frequency,t,dx,L,pi)
-    for jt = 1:size(p,2)
-        p[1,jt] = sin(frequency*t)*cos(2*pi*jt*dx/L)
-    end
+function insert_wave!(p,cosine_wave,frequency,t)
+        p[1,:] = sin(frequency*t).*cosine_wave
 
     return
 end
@@ -71,7 +69,7 @@ end
     ρ_gas                   = 1.293       # density of gas ()
     ρ_liquid                = 997         # density of liquid
     t                       = 0.0         # physical time
-    frequency               = 100        # frequency of the wave
+    frequency               = 10000        # frequency of the wave
     pi                      = 3.14159265  # pi
 
     #Derived physics
@@ -79,10 +77,10 @@ end
     c_liquid_const = sqrt(k_liquid/ρ_liquid)     # speed of sound in liquid
 
     # Numerics
-    nx_gas, ny_gas    = 510, 510  # numerical grid resolution; should be a mulitple of 32-1 for optimal GPU perf
-    nx_liquid, ny_liquid = 510, 2*ny_gas-1
-    nt        = 25000       # number of timesteps
-    nout      = 100         # plotting frequency
+    nx_gas, ny_gas    = 1020, 1020  # numerical grid resolution; should be a mulitple of 32-1 for optimal GPU perf
+    nx_liquid, ny_liquid = 1020, 2*ny_gas-1
+    nt        = 5000       # number of timesteps
+    nout      = 200         # plotting frequency
     
     # Derived numerics
     dx_gas, dy_gas          = lx_gas/(nx_gas-1), ly_gas/(ny_gas-1)              # cell sizes in gas
@@ -102,18 +100,19 @@ end
     f_current_gas       = @zeros(nx_gas,ny_gas)
     f_new_liquid        = @zeros(nx_liquid,ny_liquid)
     f_current_liquid    = @zeros(nx_liquid,ny_liquid)
+    cosine_wave         = @zeros(ny_gas)
+
 
     # Initial conditions
     dt        = min(dx_gas,dy_gas)/sqrt(k_gas/ρ_gas)/4.1*4 #adjust for both k_gas and k_liquid (probably min)
     c_gas    .= c_gas_const
     c_liquid .= c_liquid_const
     X, Y      = -(lx_gas+lx_liquid)/2:lx_gas/(nx_gas-1.5):(lx_gas+lx_liquid)/2, -ly_liquid/2:dy_liquid:ly_liquid/2
-    # print(size(X))
-    # print(size(Y))
-    # print(size(p_gas_plot[1:end-1,:]))
-    # print(size(p_liquid[2:end,:]))
-    
-    # print(size([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]]))
+    X_gas = 0:dy_gas:ly_gas
+    X_gas = X_gas.*2*pi/lx_gas
+    cosine_wave = cos.(X_gas)
+
+
 
     # Prepare visualization
     ENV["GKSwstype"]="nul"; if isdir("viz2D_out")==false mkdir("viz2D_out") end; loadpath = "./viz2D_out/"; anim = Animation(loadpath,String[])
@@ -122,7 +121,7 @@ end
 
     # Time loop
     for iter = 1:nt
-        insert_wave!(p_gas,frequency,t,dx_gas,lx_gas,pi)
+        insert_wave!(p_gas,cosine_wave,frequency,t)
         if (iter==1)
             # p_gas.= Data.Array([exp(-((ix-1)*dx_gas-0.5*lx_gas)^2 -((iy-1)*dy_gas-0.5*ly_gas)^2) for ix=1:size(p_gas,1), iy=1:size(p_gas,2)])
             @parallel compute_f!(c_gas,p_gas,f_current_gas,dx_gas,dy_gas)
@@ -147,7 +146,7 @@ end
             # print(size(Y))
             # print(size(Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])))
             p_gas_plot[:,lower_y_bound:upper_y_bound] = p_gas
-            heatmap(X, Y, Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])', clims = (-1,1),aspect_ratio=1, xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure"); frame(anim)
+            heatmap(X, Y, Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])',clims=(-1,1),aspect_ratio=1, xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure",dpi=600); frame(anim)
         end
 
     end
