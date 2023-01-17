@@ -44,18 +44,18 @@ end
 
 function insert_wave!(p,frequency,t,dx,L,pi)
     for jt = 1:size(p,2)
-        p[1,jt] = sin(frequency*t)*cos(pi*jt*dx/L)
+        p[1,jt] = sin(frequency*t)*cos(2*pi*jt*dx/L)
     end
 
     return
 end
 
-function exchange_ghosts!(p_gas,p_liquid,v_gas,v_liquid)
+function exchange_ghosts!(p_gas,p_liquid,v_gas,v_liquid,lower_y_bound,upper_y_bound)
     #exchange ghost cells
-    p_liquid[2,:] = p_gas[end-1,:]
-    p_gas[end-1,:] = p_liquid[2,:]
-    v_liquid[2,:] = v_gas[end-1,:] #redundant statements in thsi function
-    v_gas[end-1,:] = v_liquid[2,:] #info only passed left to right
+    p_liquid[2,lower_y_bound:upper_y_bound] = p_gas[end-1,:]
+
+    v_liquid[2,lower_y_bound:upper_y_bound] = v_gas[end-1,:] 
+
     return
 end
 
@@ -64,32 +64,35 @@ end
 @views function acoustic2D()
     #Physics
     lx_gas, ly_gas          = 20.0, 20.0  # domain extends of gas
-    lx_liquid, ly_liquid    = 20.0, 20.0  # domain extends of liquid
+    lx_liquid, ly_liquid    = 20.0, 40.0  # domain extends of liquid
     k_gas                   = 149470      # bulk modulus of gas (set such that speed of sound is 340m/s)
     k_liquid                = 2.2e9       # bulk modulus of liquid (set such that speed of sound is 1500m/s)
 
     ρ_gas                   = 1.293       # density of gas ()
     ρ_liquid                = 997         # density of liquid
     t                       = 0.0         # physical time
-    frequency               = 1000        # frequency of the wave
+    frequency               = 100        # frequency of the wave
     pi                      = 3.14159265  # pi
 
     #Derived physics
-    c_gas_cosnt = sqrt(k_gas/ρ_gas)           # speed of sound in gas
+    c_gas_const = sqrt(k_gas/ρ_gas)           # speed of sound in gas
     c_liquid_const = sqrt(k_liquid/ρ_liquid)     # speed of sound in liquid
 
     # Numerics
-    nx_gas, ny_gas    = 255, 255  # numerical grid resolution; should be a mulitple of 32-1 for optimal GPU perf
-    nx_liquid, ny_liquid = 255, 255
+    nx_gas, ny_gas    = 510, 510  # numerical grid resolution; should be a mulitple of 32-1 for optimal GPU perf
+    nx_liquid, ny_liquid = 510, 2*ny_gas-1
     nt        = 25000       # number of timesteps
     nout      = 100         # plotting frequency
-
+    
     # Derived numerics
     dx_gas, dy_gas          = lx_gas/(nx_gas-1), ly_gas/(ny_gas-1)              # cell sizes in gas
     dx_liquid, dy_liquid    = lx_liquid/(nx_liquid-1), ly_liquid/(ny_liquid-1)  # cell sizes in liquid
+    lower_y_bound = floor(Int,(ny_liquid-ny_gas)/2)
+    upper_y_bound = lower_y_bound + ny_gas - 1
 
     # Array allocations
     p_gas               = @zeros(nx_gas,ny_gas)
+    p_gas_plot          = @zeros(nx_gas,ny_liquid)
     p_liquid            = @zeros(nx_liquid,ny_liquid)
     c_gas               = @zeros(nx_gas,ny_gas)
     c_liquid            = @zeros(nx_liquid,ny_liquid)
@@ -97,17 +100,24 @@ end
     v_liquid            = @zeros(nx_liquid,ny_liquid)
     f_new_gas           = @zeros(nx_gas,ny_gas)
     f_current_gas       = @zeros(nx_gas,ny_gas)
-    f_new_liquid        = @zeros(nx_gas,ny_gas)
-    f_current_liquid    = @zeros(nx_gas,ny_gas)
+    f_new_liquid        = @zeros(nx_liquid,ny_liquid)
+    f_current_liquid    = @zeros(nx_liquid,ny_liquid)
 
     # Initial conditions
-    dt        = min(dx_gas,dy_gas)/sqrt(k_gas/ρ_gas)/4.1 #adjust for both k_gas and k_liquid (probably min)
-    c_gas    .= c_gas_cosnt
+    dt        = min(dx_gas,dy_gas)/sqrt(k_gas/ρ_gas)/4.1*4 #adjust for both k_gas and k_liquid (probably min)
+    c_gas    .= c_gas_const
     c_liquid .= c_liquid_const
-    X, Y      = -(lx_gas+lx_liquid)/2:lx_gas/(nx_gas-1.5):(lx_gas+lx_liquid)/2, -ly_gas/2:dy_gas:ly_gas/2
+    X, Y      = -(lx_gas+lx_liquid)/2:lx_gas/(nx_gas-1.5):(lx_gas+lx_liquid)/2, -ly_liquid/2:dy_liquid:ly_liquid/2
+    # print(size(X))
+    # print(size(Y))
+    # print(size(p_gas_plot[1:end-1,:]))
+    # print(size(p_liquid[2:end,:]))
+    
+    # print(size([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]]))
 
     # Prepare visualization
     ENV["GKSwstype"]="nul"; if isdir("viz2D_out")==false mkdir("viz2D_out") end; loadpath = "./viz2D_out/"; anim = Animation(loadpath,String[])
+    p_gas_plot .= -100
     println("Animation directory: $(anim.dir)")
 
     # Time loop
@@ -121,7 +131,7 @@ end
             f_current_gas .= f_new_gas
             f_current_liquid .= f_new_liquid
         end
-        exchange_ghosts!(p_gas,p_liquid,v_gas,v_liquid)
+        exchange_ghosts!(p_gas,p_liquid,v_gas,v_liquid,lower_y_bound,upper_y_bound)
         @parallel compute_p!(p_gas, v_gas, f_current_gas, dt)
         @parallel compute_p!(p_liquid, v_liquid, f_current_liquid, dt)
 
@@ -135,8 +145,9 @@ end
             println("iter = $iter, t = $t")
             # print(size(X))
             # print(size(Y))
-            # print(size(Array([p_gas[1:end-1,:]; p_liquid[2:end,:]])))
-            heatmap(X, Y, Array([p_gas[1:end-1,:]; p_liquid[2:end,:]])', clims=(-0.2,0.2),aspect_ratio=1, xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure"); frame(anim)
+            # print(size(Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])))
+            p_gas_plot[:,lower_y_bound:upper_y_bound] = p_gas
+            heatmap(X, Y, Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])', clims = (-1,1),aspect_ratio=1, xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure"); frame(anim)
         end
 
     end
