@@ -69,7 +69,7 @@ end
     ρ_gas                   = 1.293       # density of gas ()
     ρ_liquid                = 997         # density of liquid
     t                       = 0.0         # physical time
-    frequency               = 10000        # frequency of the wave
+    frequency               = 1000        # frequency of the wave
     pi                      = 3.14159265  # pi
 
     #Derived physics
@@ -104,7 +104,7 @@ end
 
 
     # Initial conditions
-    dt        = min(dx_gas,dy_gas)/sqrt(k_gas/ρ_gas)/4.1*4 #adjust for both k_gas and k_liquid (probably min)
+    dt        = min(dx_gas,dy_gas)/sqrt(k_gas/ρ_gas)/4.1*8#adjust for both k_gas and k_liquid (probably min)
     c_gas    .= c_gas_const
     c_liquid .= c_liquid_const
     X, Y      = -(lx_gas+lx_liquid)/2:lx_gas/(nx_gas-1.5):(lx_gas+lx_liquid)/2, -ly_liquid/2:dy_liquid:ly_liquid/2
@@ -146,7 +146,7 @@ end
             # print(size(Y))
             # print(size(Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])))
             p_gas_plot[:,lower_y_bound:upper_y_bound] = p_gas
-            heatmap(X, Y, Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])',clims=(-1,1),aspect_ratio=1, xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure",dpi=600); frame(anim)
+            heatmap(X, Y, Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])',clims=(-1,1),aspect_ratio=1, xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure",dpi=300); frame(anim)
         end
 
     end
