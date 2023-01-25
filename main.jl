@@ -42,17 +42,24 @@ end
     return
 end
 
-function insert_wave!(p,cosine_wave,frequency,t)
-        p[1,:] = sin(frequency*t).*cosine_wave
+function insert_wave!(p,cosine_wave,omega,t)
+        p[1,:] = sin(omega*t).*cosine_wave
 
     return
 end
 
-function exchange_ghosts!(p_gas,p_liquid,v_gas,v_liquid,lower_y_bound,upper_y_bound)
+function exchange_ghosts!(p_gas,p_liquid,lower_y_bound,upper_y_bound)
     #exchange ghost cells
-    p_liquid[2,lower_y_bound:upper_y_bound] = p_gas[end-1,:]
+    p_liquid[1,lower_y_bound:upper_y_bound] = p_gas[end-1,:]
+    p_gas[end,:] = p_liquid[2,lower_y_bound:upper_y_bound]
+ 
 
-    v_liquid[2,lower_y_bound:upper_y_bound] = v_gas[end-1,:] 
+    return
+end
+
+function absorption_boundary!(p_liquid,c_liquid,dx,dt)
+    #east boundary
+    p_liquid[end,:] = p_liquid[end,:] - c_liquid*dt/dx*(p_liquid[end,:]-p_liquid[end-1,:])
 
     return
 end
@@ -61,26 +68,28 @@ end
 ##################################################
 @views function acoustic2D()
     #Physics
-    lx_gas, ly_gas          = 0.02, 0.02  # domain extends of gas
-    lx_liquid, ly_liquid    = 0.02, 0.04  # domain extends of liquid
+    lx_gas, ly_gas          = 0.02, 0.02  # domain extends of gas [m]
+    lx_liquid, ly_liquid    = 0.02, 0.04  # domain extends of liquid [m]
     k_gas                   = 149470      # bulk modulus of gas (set such that speed of sound is 340m/s)
     k_liquid                = 2.2e9       # bulk modulus of liquid (set such that speed of sound is 1500m/s)
 
-    ρ_gas                   = 1.293       # density of gas ()
-    ρ_liquid                = 997         # density of liquid
-    t                       = 0.0         # physical time
-    frequency               = 1000        # frequency of the wave
+    ρ_gas                   = 1.293       # density of gas [kg/m^3]
+    ρ_liquid                = 997         # density of liquid [kg/m^3]
+    t                       = 0.0         # physical time [s]
     pi                      = 3.14159265  # pi
+    frequency               = 10000    # frequency of the wave [Hz]
 
     #Derived physics
+    omega = 2*pi*frequency          #angular frequency of the wave
     c_gas_const = sqrt(k_gas/ρ_gas)           # speed of sound in gas
     c_liquid_const = sqrt(k_liquid/ρ_liquid)     # speed of sound in liquid
 
+
     # Numerics
-    nx_gas, ny_gas    = 1020, 1020  # numerical grid resolution; should be a mulitple of 32-1 for optimal GPU perf
-    nx_liquid, ny_liquid = 1020, 2*ny_gas-1
-    nt        = 25000       # number of timesteps
-    nout      = 500         # plotting frequency
+    nx_gas, ny_gas    = 510, 510  # numerical grid resolution; should be a mulitple of 32-1 for optimal GPU perf
+    nx_liquid, ny_liquid = 510, 2*ny_gas-1
+    nt        = 20000       # number of timesteps
+    nout      = 100        # plotting frequency
     
     # Derived numerics
     dx_gas, dy_gas          = lx_gas/(nx_gas-1), ly_gas/(ny_gas-1)              # cell sizes in gas
@@ -121,7 +130,7 @@ end
 
     # Time loop
     for iter = 1:nt
-        insert_wave!(p_gas,cosine_wave,frequency,t)
+        insert_wave!(p_gas,cosine_wave,omega,t)
         if (iter==1)
             # p_gas.= Data.Array([exp(-((ix-1)*dx_gas-0.5*lx_gas)^2 -((iy-1)*dy_gas-0.5*ly_gas)^2) for ix=1:size(p_gas,1), iy=1:size(p_gas,2)])
             @parallel compute_f!(c_gas,p_gas,f_current_gas,dx_gas,dy_gas)
@@ -130,9 +139,10 @@ end
             f_current_gas .= f_new_gas
             f_current_liquid .= f_new_liquid
         end
-        exchange_ghosts!(p_gas,p_liquid,v_gas,v_liquid,lower_y_bound,upper_y_bound)
+        exchange_ghosts!(p_gas,p_liquid,lower_y_bound,upper_y_bound)
         @parallel compute_p!(p_gas, v_gas, f_current_gas, dt)
         @parallel compute_p!(p_liquid, v_liquid, f_current_liquid, dt)
+        # absorption_boundary!(p_liquid,c_liquid_const,dx_liquid,dt)
 
         @parallel compute_f!(c_gas,p_gas,f_new_gas,dx_gas,dy_gas)
         @parallel compute_f!(c_liquid,p_liquid,f_new_liquid,dx_liquid,dy_liquid)
