@@ -59,7 +59,7 @@ end
 
 function absorption_boundary!(p_liquid,c_liquid,dx,dt)
     #east boundary
-    p_liquid[end,:] = p_liquid[end,:] - c_liquid*dt/dx*(p_liquid[end,:]-p_liquid[end-1,:])
+    p_liquid[end,:] = p_liquid[end,:] - c_liquid*dt/dx.*(p_liquid[end,:]-p_liquid[end-1,:])
 
     return
 end
@@ -88,7 +88,7 @@ end
     # Numerics
     nx_gas, ny_gas    = 510, 510  # numerical grid resolution; should be a mulitple of 32-1 for optimal GPU perf
     nx_liquid, ny_liquid = 510, 2*ny_gas-1
-    nt        = 20000       # number of timesteps
+    nt        = 10000       # number of timesteps
     nout      = 100        # plotting frequency
     
     # Derived numerics
@@ -125,7 +125,7 @@ end
 
     # Prepare visualization
     ENV["GKSwstype"]="nul"; if isdir("viz2D_out")==false mkdir("viz2D_out") end; loadpath = "./viz2D_out/"; anim = Animation(loadpath,String[])
-    p_gas_plot .= -100
+    p_gas_plot .= 0
     println("Animation directory: $(anim.dir)")
 
     # Time loop
@@ -142,7 +142,7 @@ end
         exchange_ghosts!(p_gas,p_liquid,lower_y_bound,upper_y_bound)
         @parallel compute_p!(p_gas, v_gas, f_current_gas, dt)
         @parallel compute_p!(p_liquid, v_liquid, f_current_liquid, dt)
-        # absorption_boundary!(p_liquid,c_liquid_const,dx_liquid,dt)
+        absorption_boundary!(p_liquid,c_liquid_const,dx_liquid,dt)
 
         @parallel compute_f!(c_gas,p_gas,f_new_gas,dx_gas,dy_gas)
         @parallel compute_f!(c_liquid,p_liquid,f_new_liquid,dx_liquid,dy_liquid)
@@ -156,7 +156,7 @@ end
             # print(size(Y))
             # print(size(Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])))
             p_gas_plot[:,lower_y_bound:upper_y_bound] = p_gas
-            heatmap(X, Y, Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])',clims=(-1,1),aspect_ratio=1, xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure",dpi=300); frame(anim)
+            heatmap(X, Y, Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])',aspect_ratio=1, xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure",dpi=300); frame(anim)
         end
 
     end
