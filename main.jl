@@ -42,24 +42,25 @@ end
     return
 end
 
-function insert_wave!(p,cosine_wave,omega,t)
-        p[1,:] = sin(omega*t).*cosine_wave
+@parallel_indices (iy) function insert_wave!(p,cosine_wave,omega,t)
+        p[1,iy] = sin(omega*t).*cosine_wave[iy]
 
     return
 end
 
-function exchange_ghosts!(p_gas,p_liquid,lower_y_bound,upper_y_bound)
+@parallel_indices (iy) function exchange_ghosts!(p_gas,p_liquid,lower_y_bound,upper_y_bound)
     #exchange ghost cells
-    p_liquid[1,lower_y_bound:upper_y_bound] = p_gas[end-1,:]
-    p_gas[end,:] = p_liquid[2,lower_y_bound:upper_y_bound]
- 
+    # p_liquid[1,lower_y_bound:upper_y_bound] = p_gas[end-1,:]
+    # p_gas[end,:] = p_liquid[2,lower_y_bound:upper_y_bound]
+    p_liquid[1,lower_y_bound+iy] = p_gas[end-1,iy]
+    p_gas[end,iy] = p_liquid[2,lower_y_bound+iy]
 
     return
 end
 
-function absorption_boundary!(p_liquid,c_liquid,dx,dt)
+@parallel_indices (iy) function absorption_boundary!(p_liquid,c_liquid,dx,dt)
     #east boundary
-    p_liquid[end,:] = p_liquid[end,:] - c_liquid*dt/dx.*(p_liquid[end,:]-p_liquid[end-1,:])
+    p_liquid[end,iy] = p_liquid[end,iy] - c_liquid*dt/dx.*(p_liquid[end,iy]-p_liquid[end-1,iy])
 
     return
 end
@@ -88,8 +89,8 @@ end
     # Numerics
     nx_gas, ny_gas    = 510, 510  # numerical grid resolution; should be a mulitple of 32-1 for optimal GPU perf
     nx_liquid, ny_liquid = 510, 2*ny_gas-1
-    nt        = 10000       # number of timesteps
-    nout      = 100        # plotting frequency
+    nt        = 80000       # number of timesteps
+    nout      = 1000        # plotting frequency
     
     # Derived numerics
     dx_gas, dy_gas          = lx_gas/(nx_gas-1), ly_gas/(ny_gas-1)              # cell sizes in gas
@@ -113,13 +114,16 @@ end
 
 
     # Initial conditions
-    dt        = min(dx_gas,dy_gas)/sqrt(k_gas/ρ_gas)/4.1*8#adjust for both k_gas and k_liquid (probably min)
+    dt        = min(dx_gas,dy_gas)/sqrt(k_gas/ρ_gas)/4.1#adjust for both k_gas and k_liquid (probably min)
     c_gas    .= c_gas_const
     c_liquid .= c_liquid_const
     X, Y      = -(lx_gas+lx_liquid)/2:lx_gas/(nx_gas-1.5):(lx_gas+lx_liquid)/2, -ly_liquid/2:dy_liquid:ly_liquid/2
     X_gas = 0:dy_gas:ly_gas
-    X_gas = X_gas.*2*pi/lx_gas
-    cosine_wave = cos.(X_gas)
+    X_gas = X_gas.*2*pi/ly_gas
+    X_gas = cos.(X_gas)
+    for i = 1:ny_gas
+        cosine_wave[i] = X_gas[i]
+    end
 
 
 
@@ -130,19 +134,20 @@ end
 
     # Time loop
     for iter = 1:nt
-        insert_wave!(p_gas,cosine_wave,omega,t)
+        if(iter<15000)
+            @parallel (1:size(p_gas, 2)) insert_wave!(p_gas,cosine_wave,omega,t)
+        end
         if (iter==1)
-            # p_gas.= Data.Array([exp(-((ix-1)*dx_gas-0.5*lx_gas)^2 -((iy-1)*dy_gas-0.5*ly_gas)^2) for ix=1:size(p_gas,1), iy=1:size(p_gas,2)])
             @parallel compute_f!(c_gas,p_gas,f_current_gas,dx_gas,dy_gas)
             @parallel compute_f!(c_liquid,p_liquid,f_current_liquid,dx_liquid,dy_liquid)
         else
             f_current_gas .= f_new_gas
             f_current_liquid .= f_new_liquid
         end
-        exchange_ghosts!(p_gas,p_liquid,lower_y_bound,upper_y_bound)
+        @parallel (1:size(p_gas, 2)) exchange_ghosts!(p_gas,p_liquid,lower_y_bound,upper_y_bound)
         @parallel compute_p!(p_gas, v_gas, f_current_gas, dt)
         @parallel compute_p!(p_liquid, v_liquid, f_current_liquid, dt)
-        absorption_boundary!(p_liquid,c_liquid_const,dx_liquid,dt)
+        @parallel (1:size(p_liquid, 2)) absorption_boundary!(p_liquid,c_liquid_const,dx_liquid,dt)
 
         @parallel compute_f!(c_gas,p_gas,f_new_gas,dx_gas,dy_gas)
         @parallel compute_f!(c_liquid,p_liquid,f_new_liquid,dx_liquid,dy_liquid)
