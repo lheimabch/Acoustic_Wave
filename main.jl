@@ -11,8 +11,8 @@ using Plots, Printf, Statistics
 #need to add keyword parallel to all functions to enable 
 @parallel function compute_p!(p, v, f, dt)
     @all(p) = @all(p) + @all(v)*dt + 0.5*@all(f)*dt*dt
-    # for it = 1:255
-    #     for jt = 1:255
+    # for it = 1:size(p,1)
+    #     for jt = 1:size(p,2)
     #         p[it,jt] = p[it,jt] + v[it,jt]*dt + 0.5*f[it,jt]*dt*dt
     #     end
     # end
@@ -35,7 +35,7 @@ end
     @inn(f) = @inn(c)*(@d2_xi(p)/(dx*dx) + @d2_yi(p)/(dy*dy))
     # for it = 2:size(f,1)-1
     #     for jt = 2:size(f,2)-1
-    #         f[it,jt] = c[it,jt]*( (p[it+1,jt] - 2*p[it,jt] + p[it-1,jt])/(dx*dx) + (p[it,jt+1] - 2*p[it,jt] + p[it,jt-1])/(dy*dy) )
+    #         f[it,jt] = c[it,jt]*((p[it+1,jt] - 2*p[it,jt] + p[it-1,jt])/(dx*dx) + (p[it,jt+1] - 2*p[it,jt] + p[it,jt-1])/(dy*dy))
     #     end
     # end
     
@@ -43,7 +43,8 @@ end
 end
 
 @parallel_indices (iy) function insert_wave!(p,cosine_wave,omega,t)
-        p[1,iy] = sin(omega*t).*cosine_wave[iy]
+        p[end,iy] = sin(omega*t).*cosine_wave[iy]
+
 
     return
 end
@@ -58,9 +59,29 @@ end
     return
 end
 
-@parallel_indices (iy) function absorption_boundary!(p_liquid,c_liquid,dx,dt)
+@parallel_indices (iy) function absorption_boundary_x_direction!(p_liquid,p_liquid_n,c_liquid,dx,dt)
     #east boundary
-    p_liquid[end,iy] = p_liquid[end,iy] - c_liquid*dt/dx.*(p_liquid[end,iy]-p_liquid[end-1,iy])
+    # p_liquid[end,iy] = - p_liquid_n_minus_1[end-1,iy] + (c_liquid*dt-dx)/(c_liquid*dt+dx)*(p_liquid_n_minus_1[end,iy] + p_liquid[end-1,iy]) + 2*dx/(c_liquid*dt+dx)*(p_liquid_n[end,iy]+p_liquid_n[end-1,iy])
+    # v_liquid[end,iy] =  c_liquid*(p_liquid[end-1,iy]-p_liquid[end,iy])/dx
+    p_liquid[1,iy] = p_liquid_n[2,iy] + (c_liquid*dt-dx)/(c_liquid*dt+dx)*(p_liquid[2,iy]-p_liquid_n[1,iy])
+
+    return
+end
+
+@parallel_indices (iy) function absorption_boundary_v_direction!(v_liquid,v_liquid_n,c_liquid,dx,dt)
+v_liquid[1,iy] = v_liquid_n[2,iy] + (c_liquid*dt-dx)/(c_liquid*dt+dx)*(v_liquid[2,iy]-v_liquid_n[1,iy])
+    return
+end
+@parallel_indices (ix) function absorption_boundary_y_N_direction!(p_liquid,c_liquid,dy,dt)
+    #east boundary
+    p_liquid[ix,end] = p_liquid[ix,end-1] + c_liquid*dt/dy.*(p_liquid[ix,end-1]-p_liquid[ix,end])
+
+    return
+end
+
+@parallel_indices (ix) function absorption_boundary_y_S_direction!(p_liquid,c_liquid,dx,dt)
+    #east boundary
+    p_liquid[ix,1] = p_liquid[ix,1] + c_liquid*dt/dx.*(p_liquid[ix,2]-p_liquid[ix,1])
 
     return
 end
@@ -102,10 +123,12 @@ end
     p_gas               = @zeros(nx_gas,ny_gas)
     p_gas_plot          = @zeros(nx_gas,ny_liquid)
     p_liquid            = @zeros(nx_liquid,ny_liquid)
+    p_liquid_n          = @zeros(nx_liquid,ny_liquid)   
     c_gas               = @zeros(nx_gas,ny_gas)
     c_liquid            = @zeros(nx_liquid,ny_liquid)
     v_gas               = @zeros(nx_gas,ny_gas)
     v_liquid            = @zeros(nx_liquid,ny_liquid)
+    v_liquid_n            = @zeros(nx_liquid,ny_liquid)
     f_new_gas           = @zeros(nx_gas,ny_gas)
     f_current_gas       = @zeros(nx_gas,ny_gas)
     f_new_liquid        = @zeros(nx_liquid,ny_liquid)
@@ -134,8 +157,12 @@ end
 
     # Time loop
     for iter = 1:nt
-        if(iter<15000)
-            @parallel (1:size(p_gas, 2)) insert_wave!(p_gas,cosine_wave,omega,t)
+        if(t<=0.5/frequency)
+            # @parallel (1:size(p_gas, 2)) insert_wave!(p_gas,cosine_wave,omega,t)
+            p_liquid[end,:] .= 1
+        end
+        if(t>0.5/frequency)
+            p_liquid[end,:] .= 0
         end
         if (iter==1)
             @parallel compute_f!(c_gas,p_gas,f_current_gas,dx_gas,dy_gas)
@@ -144,24 +171,32 @@ end
             f_current_gas .= f_new_gas
             f_current_liquid .= f_new_liquid
         end
-        @parallel (1:size(p_gas, 2)) exchange_ghosts!(p_gas,p_liquid,lower_y_bound,upper_y_bound)
+        # @parallel (1:size(p_gas, 2)) exchange_ghosts!(p_gas,p_liquid,lower_y_bound,upper_y_bound)
+        p_liquid_n .= p_liquid
         @parallel compute_p!(p_gas, v_gas, f_current_gas, dt)
         @parallel compute_p!(p_liquid, v_liquid, f_current_liquid, dt)
-        @parallel (1:size(p_liquid, 2)) absorption_boundary!(p_liquid,c_liquid_const,dx_liquid,dt)
 
+        @parallel (1:size(p_liquid, 2)) absorption_boundary_x_direction!(p_liquid,p_liquid_n,c_liquid_const,dx_liquid,dt)
+
+        # @parallel (1:size(p_liquid, 1)) absorption_boundary_y_N_direction!(p_liquid,c_liquid_const,dy_liquid,dt)
+        # @parallel (1:size(p_liquid, 1)) absorption_boundary_y_S_direction!(p_liquid,c_liquid_const,dy_liquid,dt)
+
+        v_liquid_n .= v_liquid
         @parallel compute_f!(c_gas,p_gas,f_new_gas,dx_gas,dy_gas)
         @parallel compute_f!(c_liquid,p_liquid,f_new_liquid,dx_liquid,dy_liquid)
         @parallel compute_v!(v_gas, f_current_gas, f_new_gas, dt)
         @parallel compute_v!(v_liquid, f_current_liquid, f_new_liquid, dt)
+        @parallel (1:size(v_liquid, 2)) absorption_boundary_v_direction!(v_liquid,v_liquid_n,c_liquid_const,dx_liquid,dt)
+
         t += dt
 
         if mod(iter,nout)==0
             println("iter = $iter, t = $t")
-            # print(size(X))
-            # print(size(Y))
-            # print(size(Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])))
+
             p_gas_plot[:,lower_y_bound:upper_y_bound] = p_gas
-            heatmap(X, Y, Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])',aspect_ratio=1, xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure",dpi=300); frame(anim)
+            heatmap(X, Y, Array([p_gas_plot[1:end-1,:]; p_liquid[2:end,:]])',aspect_ratio=1, 
+            xlims=(X[1],X[end]), ylims=(Y[1],Y[end]), c=:viridis, title="Pressure",dpi=300); frame(anim)
+
         end
 
     end
