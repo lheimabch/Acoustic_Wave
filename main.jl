@@ -123,17 +123,11 @@ end
     p_gas               = @zeros(nx_gas,ny_gas)
     p_gas_plot          = @zeros(nx_gas,ny_liquid)
     p_liquid            = @zeros(nx_liquid,ny_liquid)
-    p_liquid_n          = @zeros(nx_liquid,ny_liquid)   
-    c_gas               = @zeros(nx_gas,ny_gas)
-    c_liquid            = @zeros(nx_liquid,ny_liquid)
+    u_gas               = @zeros(nx_gas,ny_gas)
     v_gas               = @zeros(nx_gas,ny_gas)
+    u_liquid            = @zeros(nx_liquid,ny_liquid)
     v_liquid            = @zeros(nx_liquid,ny_liquid)
-    v_liquid_n            = @zeros(nx_liquid,ny_liquid)
-    f_new_gas           = @zeros(nx_gas,ny_gas)
-    f_current_gas       = @zeros(nx_gas,ny_gas)
-    f_new_liquid        = @zeros(nx_liquid,ny_liquid)
-    f_current_liquid    = @zeros(nx_liquid,ny_liquid)
-    cosine_wave         = @zeros(ny_gas)
+
 
 
     # Initial conditions
